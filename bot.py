@@ -1,11 +1,12 @@
 import asyncio
-import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+import logging
+logger = logging.getLogger(__name__)
 
 import config
 from topic_manager import TopicManager
@@ -19,17 +20,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Инициализация бота и диспетчера
-bot = Bot(token=config.BOT_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
-
-# Подключаем роутер FAQ
-dp.include_router(faq_router)
-
-# Инициализация менеджера тем
-topic_manager = TopicManager(bot)
-
+try:
+    from aiogram import Bot, Dispatcher
+    from aiogram.fsm.storage.memory import MemoryStorage
+    import config
+    
+    logger.info(f"Initializing bot with token: {config.BOT_TOKEN[:5]}...")
+    bot = Bot(token=config.BOT_TOKEN)
+    storage = MemoryStorage()
+    dp = Dispatcher(storage=storage)
+    
+    # Импортируйте здесь другие модули, чтобы видеть ошибки
+    from topic_manager import TopicManager
+    from faq_module import faq_router
+    from keyboards import get_main_keyboard, get_dialog_keyboard
+    
+    # Инициализация менеджера тем
+    topic_manager = TopicManager(bot)
+    
+    # Подключаем роутер FAQ
+    dp.include_router(faq_router)
+    
+    logger.info("Bot initialized successfully")
+    
+except Exception as e:
+    logger.error(f"Error initializing bot: {e}")
+    logger.error(traceback.format_exc())
+    raise
 # Состояния для FSM
 class SupportStates(StatesGroup):
     waiting_for_problem = State()
