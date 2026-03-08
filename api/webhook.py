@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 try:
     from bot import dp, bot
     from config import BOT_TOKEN, GROUP_ID
+    from aiogram.types import Update  # <-- ЭТОТ ИМПОРТ БЫЛ ПРОПУЩЕН!
     logger.info(f"Successfully imported bot modules. GROUP_ID: {GROUP_ID}, BOT_TOKEN exists: {bool(BOT_TOKEN)}")
 except Exception as e:
     logger.error(f"Failed to import bot modules: {e}")
