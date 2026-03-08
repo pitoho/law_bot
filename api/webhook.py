@@ -1,41 +1,56 @@
+# api/webhook.py
 import sys
 import json
 import asyncio
-import logging
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
-# Добавляем корневую директорию в путь Python
 sys.path.append(str(Path(__file__).parent.parent))
-
 from bot import dp, bot
 from aiogram.types import Update
 
-logger = logging.getLogger(__name__)
-
-# Переименовано с webhook на handler
-async def async_handler(request_body):
-    # ... (ваша асинхронная логика обработки) ...
-    try:
-        update = Update.model_validate(request_body, context={"bot": bot})
-        await dp.feed_update(bot, update)
-        return {"statusCode": 200, "body": json.dumps({"ok": True})}
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
-
-# Главная синхронная функция, которую вызовет Vercel
-def handler(request):
-    """Точка входа для Vercel (должна называться handler)"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        # Получаем JSON из запроса
-        request_body = request.get_json()
-        # Запускаем асинхронную обработку
-        result = loop.run_until_complete(async_handler(request_body))
-        return result
-    except Exception as e:
-        logger.error(f"Fatal: {e}")
-        return {"statusCode": 500, "body": json.dumps({"error": "Internal error"})}
-    finally:
-        loop.close()
+class handler(BaseHTTPRequestHandler):
+    """Класс-обработчик для Vercel"""
+    
+    def do_POST(self):
+        """Обрабатываем POST запросы от Telegram"""
+        # Получаем длину тела запроса
+        content_length = int(self.headers.get('Content-Length', 0))
+        # Читаем тело
+        post_data = self.rfile.read(content_length)
+        
+        # Парсим JSON
+        try:
+            update_data = json.loads(post_data.decode('utf-8'))
+        except json.JSONDecodeError:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b'Invalid JSON')
+            return
+        
+        # Асинхронно обрабатываем обновление
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            update = Update.model_validate(update_data, context={"bot": bot})
+            loop.run_until_complete(dp.feed_update(bot, update))
+            
+            # Отправляем успешный ответ
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True}).encode('utf-8'))
+        except Exception as e:
+            # Отправляем ошибку
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+        finally:
+            loop.close()
+    
+    # Vercel может вызвать и GET, поэтому добавим заглушку
+    def do_GET(self):
+        self.send_response(405)  # Method Not Allowed
+        self.end_headers()
+        self.wfile.write(b'Method not allowed. Use POST for webhook.')
