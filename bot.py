@@ -2,7 +2,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message, BotCommand, BotCommandScopeDefault
+from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -10,7 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 import config
 from topic_manager import TopicManager
 from faq_module import faq_router
-from keyboards import get_main_keyboard, get_dialog_keyboard  # Импортируем из отдельного файла
+from keyboards import get_main_keyboard, get_dialog_keyboard
 
 # Настройка логирования
 logging.basicConfig(
@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Инициализация бота и диспетчера с хранилищем состояний
+# Инициализация бота и диспетчера
 bot = Bot(token=config.BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
@@ -187,23 +187,23 @@ async def set_bot_commands():
 
 # --- Основная функция ---
 
-async def main():
-    await set_bot_commands()
+# async def main():
+#     await set_bot_commands()
     
-    # Проверяем доступ к группе
-    try:
-        chat = await bot.get_chat(config.GROUP_ID)
-        logger.info(f"Подключено к группе: {chat.title} (ID: {chat.id})")
+#     # Проверяем доступ к группе
+#     try:
+#         chat = await bot.get_chat(config.GROUP_ID)
+#         logger.info(f"Подключено к группе: {chat.title} (ID: {chat.id})")
         
-        # Проверяем, включены ли темы в группе
-        if not chat.is_forum:
-            logger.warning("ВНИМАНИЕ: В группе не включены темы! Бот не сможет создавать темы.")
-    except Exception as e:
-        logger.error(f"Не удалось подключиться к группе {config.GROUP_ID}: {e}")
-        logger.error("Проверьте, добавлен ли бот в группу и есть ли у него права администратора.")
+#         # Проверяем, включены ли темы в группе
+#         if not chat.is_forum:
+#             logger.warning("ВНИМАНИЕ: В группе не включены темы! Бот не сможет создавать темы.")
+#     except Exception as e:
+#         logger.error(f"Не удалось подключиться к группе {config.GROUP_ID}: {e}")
+#         logger.error("Проверьте, добавлен ли бот в группу и есть ли у него права администратора.")
     
-    logger.info("Бот запущен и готов к работе!")
-    await dp.start_polling(bot)
+#     logger.info("Бот запущен и готов к работе!")
+#     await dp.start_polling(bot)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# if __name__ == "__main__":
+#     asyncio.run(main())
