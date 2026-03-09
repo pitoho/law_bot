@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 # Настройка логирования
 logging.basicConfig(
     level=logging.DEBUG,
-    format='%(ascticps - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 try:
     from bot import dp, bot
     from config import BOT_TOKEN, GROUP_ID
-    from aiogram.types import Update
+    from aiogram.types import Update  # <-- ЭТОТ ИМПОРТ БЫЛ ПРОПУЩЕН!
     logger.info(f"Successfully imported bot modules. GROUP_ID: {GROUP_ID}, BOT_TOKEN exists: {bool(BOT_TOKEN)}")
 except Exception as e:
     logger.error(f"Failed to import bot modules: {e}")
@@ -36,89 +36,35 @@ class handler(BaseHTTPRequestHandler):
         logger.info(f"{self.address_string()} - {format % args}")
     
     def do_POST(self):
-        """Обрабатываем POST запросы от Telegram"""
-        # Получаем длину тела запроса
         content_length = int(self.headers.get('Content-Length', 0))
-        logger.debug(f"Received POST request, content length: {content_length}")
-        
-        # Читаем тело
         post_data = self.rfile.read(content_length)
-        logger.debug(f"Raw post data: {post_data[:200]}...")
-        
-        # Парсим JSON
+    
         try:
             update_data = json.loads(post_data.decode('utf-8'))
-            logger.info(f"Successfully parsed JSON, update_id: {update_data.get('update_id')}")
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error: {e}")
             self.send_response(400)
             self.end_headers()
             self.wfile.write(b'Invalid JSON')
             return
-        
-        # Проверяем наличие бота
-        if not bot:
-            logger.error("Bot instance is None!")
-            self.send_response(500)
-            self.end_headers()
-            self.wfile.write(b'Bot not initialized')
-            return
-        
-        # Асинхронно обрабатываем обновление
+    
         try:
-            # Получаем текущий event loop или создаем новый
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            
-            logger.debug("Creating Update object...")
-            update = Update.model_validate(update_data, context={"bot": bot})
-            
-            logger.debug(f"Feeding update to dispatcher: {update.update_id}")
-            
-            # Создаем задачу и ждем её выполнения
-            if loop.is_running():
-                # Если loop уже запущен, создаем задачу
-                future = asyncio.run_coroutine_threadsafe(
-                    dp.feed_update(bot, update),
-                    loop
-                )
-                future.result(timeout=25)  # Таймаут 25 секунд
-            else:
-                # Если loop не запущен, запускаем и ждем
-                loop.run_until_complete(dp.feed_update(bot, update))
-            
-            logger.info(f"Successfully processed update {update.update_id}")
-            
-            # Отправляем успешный ответ
+            # Используем asyncio.run() - он сам создаёт и закрывает loop
+            async def process_update():
+                update = Update.model_validate(update_data, context={"bot": bot})
+                await dp.feed_update(bot, update)
+        
+            asyncio.run(process_update())
+        
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({"ok": True}).encode('utf-8'))
-            
-        except asyncio.TimeoutError:
-            logger.error("Timeout processing update")
-            self.send_response(504)
-            self.end_headers()
-            self.wfile.write(b'Gateway Timeout')
-            
-        except Exception as e:
-            logger.error(f"Error processing update: {e}")
-            logger.error(traceback.format_exc())
-            
-            self.send_response(500)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            error_response = {
-                "error": str(e),
-                "traceback": traceback.format_exc().split('\n')
-            }
-            self.wfile.write(json.dumps(error_response).encode('utf-8'))
         
-        # НЕ закрываем loop - он может понадобиться для следующих запросов
-        # loop.close() - УДАЛЯЕМ ЭТУ СТРОКУ!
+        except Exception as e:
+            logger.error(f"Error: {e}")
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
     
     def do_GET(self):
         """Обработка GET запросов (для тестирования)"""
