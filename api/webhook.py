@@ -64,66 +64,92 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(b'Bot not initialized')
             return
         
-        # СОЗДАЁМ НОВЫЙ EVENT LOOP ДЛЯ КАЖДОГО ЗАПРОСА
+        # ГАРАНТИРОВАННО СОЗДАЁМ НОВЫЙ EVENT LOOP
         loop = None
+        response_sent = False
+        
         try:
             # Создаём новый event loop
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            logger.debug("Created new event loop")
             
-            logger.debug("Creating Update object...")
+            # Создаём Update объект
             update = Update.model_validate(update_data, context={"bot": bot})
+            logger.debug(f"Created Update object for update {update.update_id}")
             
-            logger.debug(f"Feeding update to dispatcher: {update.update_id}")
-            
-            # ВАЖНО: Создаём задачу и запускаем её в event loop
+            # Функция для обработки обновления
             async def process_update():
-                # Создаём задачу для обработки обновления
-                task = asyncio.create_task(dp.feed_update(bot, update))
-                # Ждём результат с таймаутом
-                return await asyncio.wait_for(task, timeout=9.0)  # Таймаут 9 секунд (Vercel лимит 10 сек)
+                try:
+                    logger.debug(f"Starting to feed update {update.update_id}")
+                    await dp.feed_update(bot, update)
+                    logger.debug(f"Successfully fed update {update.update_id}")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error in feed_update: {e}")
+                    logger.error(traceback.format_exc())
+                    raise
             
             # Запускаем обработку и ждём результата
-            loop.run_until_complete(process_update())
+            logger.debug("Running process_update in event loop")
+            result = loop.run_until_complete(process_update())
             
-            logger.info(f"Successfully processed update {update.update_id}")
+            if result:
+                logger.info(f"Successfully processed update {update.update_id}")
+                # Отправляем успешный ответ
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode('utf-8'))
+                response_sent = True
             
-            # Отправляем успешный ответ
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"ok": True}).encode('utf-8'))
-            
-        except asyncio.TimeoutError:
-            logger.error("Timeout processing update")
-            self.send_response(504)
-            self.end_headers()
-            self.wfile.write(b'Gateway Timeout')
-            
+        except asyncio.CancelledError:
+            logger.error("Task was cancelled")
+            if not response_sent:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(b'Task cancelled')
+                
         except Exception as e:
             logger.error(f"Error processing update: {e}")
             logger.error(traceback.format_exc())
             
-            self.send_response(500)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            error_response = {
-                "error": str(e),
-                "traceback": traceback.format_exc().split('\n')
-            }
-            self.wfile.write(json.dumps(error_response).encode('utf-8'))
+            if not response_sent:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                error_response = {
+                    "error": str(e),
+                    "traceback": traceback.format_exc().split('\n')
+                }
+                self.wfile.write(json.dumps(error_response).encode('utf-8'))
             
         finally:
-            # ВАЖНО: Всегда закрываем loop после использования
-            if loop and loop.is_running():
-                # Останавливаем все задачи
-                for task in asyncio.all_tasks(loop):
-                    task.cancel()
-                loop.stop()
-                loop.run_until_complete(loop.shutdown_asyncgens())
-            if loop and not loop.is_closed():
-                loop.close()
-                logger.debug("Event loop closed")
+            # ОЧЕНЬ ВАЖНО: Правильно закрываем loop
+            if loop:
+                logger.debug("Cleaning up event loop")
+                
+                # Отменяем все запущенные задачи
+                pending = asyncio.all_tasks(loop)
+                if pending:
+                    logger.debug(f"Cancelling {len(pending)} pending tasks")
+                    for task in pending:
+                        task.cancel()
+                    
+                    # Даём время задачам на отмену
+                    if not loop.is_closed():
+                        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                
+                # Останавливаем loop
+                if loop.is_running():
+                    logger.debug("Stopping running loop")
+                    loop.stop()
+                
+                # Закрываем loop
+                if not loop.is_closed():
+                    logger.debug("Closing event loop")
+                    loop.close()
+                    logger.debug("Event loop closed")
     
     def do_GET(self):
         """Обработка GET запросов (для тестирования)"""
