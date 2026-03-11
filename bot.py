@@ -162,34 +162,31 @@ async def complaint_handler(message: Message):
     )
 
 # --- Обработчики сообщений из группы ---
-
-@dp.message(lambda message: message.chat.id == config.GROUP_ID and not message.is_topic_message)
-async def handle_group_message(message: Message):
-    """Обработка сообщений в группе вне тем."""
-    await message.reply(
-        "Пожалуйста, используйте темы для общения с пользователями.\n"
-        "Все сообщения должны быть в соответствующих темах."
-    )
-
 @dp.message(lambda message: message.chat.id == config.GROUP_ID and message.is_topic_message)
 async def handle_topic_message(message: Message):
-    """Обработка сообщений в темах группы."""
+    # Игнорируем служебные сообщения темы
+    if (
+        message.forum_topic_created
+        or message.forum_topic_edited
+        or message.forum_topic_closed
+        or message.forum_topic_reopened
+        or message.general_forum_topic_hidden
+        or message.general_forum_topic_unhidden
+    ):
+        return
+
     topic_id = message.message_thread_id
-    
-    # Ищем пользователя по topic_id
+
     user_id = None
     for uid, tid in topic_manager.user_topics.items():
         if tid == topic_id:
             user_id = uid
             break
-    
-    if not user_id:
-        await message.reply("❌ Не удалось определить пользователя для этой темы.")
-        return
-    
-    # Пересылаем сообщение пользователю
-    await topic_manager.forward_to_user(user_id, message, message.reply_to_message.message_id if message.reply_to_message else None)
 
+    if not user_id:
+        return
+
+    await topic_manager.forward_to_user(user_id, message)
 # --- Настройка команд бота ---
 
 async def set_bot_commands():
