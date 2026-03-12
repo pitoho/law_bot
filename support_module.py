@@ -1,11 +1,11 @@
-import secrets
 import logging
-from typing import Dict, Any, Optional
+import secrets
+from typing import Any, Dict, Optional
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import config
@@ -35,11 +35,7 @@ def get_support_service():
 class TechSupportService:
     def __init__(self, bot: Bot):
         self.bot = bot
-
-        # token -> ticket data
         self.tickets: Dict[str, Dict[str, Any]] = {}
-
-        # user_id -> last active ticket token
         self.user_last_ticket: Dict[int, str] = {}
 
     def _new_token(self) -> str:
@@ -153,8 +149,8 @@ class TechSupportService:
             message_thread_id=config.SUPPORT_TOPIC_ID,
             text=(
                 "✅ <b>Пользователь подтвердил, что проблема решена.</b>\n"
-                f"UID: <code>{ticket['user_id']}</code>\n"
-                f"Token: <code>{token}</code>"
+                f"<b>UID:</b> <code>{ticket['user_id']}</code>\n"
+                f"<b>Token:</b> <code>{token}</code>"
             ),
             parse_mode="HTML",
             reply_to_message_id=ticket["root_message_id"]
@@ -181,7 +177,7 @@ class TechSupportService:
         ticket["status"] = "awaiting_feedback"
 
 
-@support_router.message(F.text == " Тех. поддержка")
+@support_router.message(F.text == "Тех. поддержка")
 async def tech_support_entry(message: Message, state: FSMContext):
     await state.set_state(TechSupportStates.waiting_for_problem)
     await message.answer(

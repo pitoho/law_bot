@@ -1,155 +1,168 @@
 import asyncio
 import logging
-import traceback 
-from aiogram import Bot, Dispatcher, types, F
+import traceback
+
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message, BotCommand, BotCommandScopeDefault  # <-- ДОБАВЬТЕ BotCommand
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from support_module import support_router, setup_support_module
+from aiogram.types import BotCommand, BotCommandScopeDefault, Message
+
+import config
+from faq_module import faq_router
+from keyboards import get_dialog_keyboard, get_main_keyboard
+from support_module import TechSupportStates, setup_support_module, support_router
+from topic_manager import TopicManager
 
 logger = logging.getLogger(__name__)
 
-import config
-from topic_manager import TopicManager
-from faq_module import faq_router
-from keyboards import get_main_keyboard, get_dialog_keyboard
-
-# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 try:
-    logger.info(f"Initializing bot with token: {config.BOT_TOKEN[:5]}...")
+    logger.info("Initializing bot")
     bot = Bot(token=config.BOT_TOKEN)
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
-    
-    # Инициализация менеджера тем
-    from topic_manager import TopicManager
+
     topic_manager = TopicManager(bot)
     setup_support_module(bot)
-    
-    # Подключаем роутер FAQ
-    from faq_module import faq_router
+
     dp.include_router(faq_router)
     dp.include_router(support_router)
 
-    
     logger.info("Bot initialized successfully")
-    
 except Exception as e:
     logger.error(f"Error initializing bot: {e}")
     logger.error(traceback.format_exc())
     raise
 
-# Состояния для FSM
+
 class SupportStates(StatesGroup):
     waiting_for_problem = State()
     in_dialog = State()
 
 
-# --- Обработчики сообщений ---
-
 @dp.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
-    """Обработчик команды /start."""
     text = (
-        "🚀 <b>Бот готов к работе!</b>\n\n"
-        "<b>Что я умею:</b>\n"
-        "• 🛠 Связаться с тех. поддержкой\n"
-        "• 📝 Описать возникшую проблему\n"
-        "• ❓ Найти ответы в часто задаваемых вопросах\n"
-        "👇 <i>Используй кнопки в меню ниже для навигации.</i>"
+        "🤖 Бот готов к работе!\n\n"
+        "Что я умею:\n"
+        "• Связаться с техподдержкой\n"
+        "• Описать возникшую проблему\n"
+        "• Найти ответы в FAQ\n\n"
+        "Используйте кнопки меню ниже."
     )
-    
-    await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="HTML")
+    await message.answer(
+        text,
+        reply_markup=get_main_keyboard(),
+        parse_mode="HTML"
+    )
 
-@dp.message(F.text == "📝 Описать проблему")
+
+@dp.message(F.text == "Описать проблему")
 async def describe_problem_handler(message: Message, state: FSMContext):
-    """Начало описания проблемы - создание темы."""
     user_id = message.from_user.id
-    
-    # Проверяем, есть ли уже активная тема
+
     if topic_manager.is_active_topic(user_id):
         await message.answer(
             "⚠️ У вас уже есть активный диалог с поддержкой.\n"
-            "Пожалуйста, завершите его или продолжите общение.",
+            "Продолжите его или завершите текущий диалог.",
             reply_markup=get_dialog_keyboard()
         )
         await state.set_state(SupportStates.in_dialog)
         return
-    
-    # Создаем тему в группе
+
     topic_id = await topic_manager.create_topic(
         user_id=user_id,
         username=message.from_user.username,
         first_name=message.from_user.first_name
     )
-    
+
     if topic_id:
         await message.answer(
-            "📝 <b>Опишите вашу проблему</b>\n\n"
-            "Пожалуйста, подробно опишите, с чем вы столкнулись. Наш менеджер поможет подобрать Вам специалиста и подскажет стоимость услуг.\n"
-            "Вы можете отправить текст, фото, видео или документы.\n\n"
-            "Когда закончите, нажмите кнопку <b>\"Завершить диалог\"</b>.",
+            "📝 Опишите вашу проблему.\n\n"
+            "Можно отправить текст, фото, видео или документы.\n"
+            "Когда закончите, нажмите «Завершить диалог».",
             reply_markup=get_dialog_keyboard(),
             parse_mode="HTML"
         )
         await state.set_state(SupportStates.in_dialog)
-        
-        # Уведомление в группу о начале диалога
+
         await bot.send_message(
             chat_id=config.GROUP_ID,
             message_thread_id=topic_id,
-            text="👤 <b>Пользователь начал описание проблемы</b>",
+            text="🆕 Пользователь начал описание проблемы",
             parse_mode="HTML"
         )
     else:
         await message.answer(
-            "❌ Произошла ошибка при создании диалога.\n"
-            "Пожалуйста, попробуйте позже или обратитесь в поддержку.",
+            "❌ Не удалось создать диалог.\n"
+            "Попробуйте позже.",
             reply_markup=get_main_keyboard()
         )
 
-@dp.message(SupportStates.in_dialog, F.text == "🔚 Завершить диалог")
+
+@dp.message(SupportStates.in_dialog, F.text == "Завершить диалог")
 async def close_dialog_handler(message: Message, state: FSMContext):
-    """Завершение диалога пользователем."""
     user_id = message.from_user.id
-    
-    # Отправляем только одно сообщение о завершении
+
     await message.answer(
-        "✅ <b>Диалог завершен</b>\n\n"
-        "Спасибо за обращение! Если у вас возникнут новые вопросы,\n"
-        "вы всегда можете начать новый диалог.",
+        "✅ Диалог завершён.\n\n"
+        "Спасибо за обращение.",
         reply_markup=get_main_keyboard(),
         parse_mode="HTML"
     )
-    
-    # Закрываем и удаляем тему
+
     if await topic_manager.close_and_delete_topic(user_id):
-        logger.info(f"Диалог с пользователем {user_id} завершен и тема удалена")
+        logger.info(f"Диалог с пользователем {user_id} завершён")
     else:
         logger.warning(f"Не удалось удалить тему для пользователя {user_id}")
-    
+
     await state.clear()
+
 
 @dp.message(SupportStates.in_dialog)
 async def handle_dialog_message(message: Message, state: FSMContext):
-    """Обработка сообщений в режиме диалога."""
-    user_id = message.from_user.id
-    
-    # Просто пересылаем сообщение в тему без подтверждения
-    await topic_manager.forward_to_topic(user_id, message)
-    # Никакого ответного сообщения не отправляем
+    """
+    Обработка сообщений в старом диалоге.
+    Важно: не перехватываем кнопки главного меню.
+    """
 
-# --- Обработчики сообщений из группы ---
+    if message.text == "Тех. поддержка":
+        await state.clear()
+        await message.answer(
+            "🛠 <b>Техническая поддержка</b>\n\n"
+            "Опишите проблему одним сообщением.\n"
+            "Можно отправить текст, фото, видео или документ.\n\n"
+            "Сообщение будет отправлено нашим специалистам техподдержки.",
+            parse_mode="HTML"
+        )
+        await state.set_state(TechSupportStates.waiting_for_problem)
+        return
+
+    if message.text == "Описать проблему":
+        await state.clear()
+        await describe_problem_handler(message, state)
+        return
+
+    if message.text == "❓ FAQ":
+        await state.clear()
+        await message.answer(
+            "Выберите нужный раздел FAQ.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+
+    user_id = message.from_user.id
+    await topic_manager.forward_to_topic(user_id, message)
+
+
 @dp.message(lambda message: message.chat.id == config.GROUP_ID and message.is_topic_message)
 async def handle_topic_message(message: Message):
-    # Игнорируем служебные сообщения темы
     if (
         message.forum_topic_created
         or message.forum_topic_edited
@@ -172,10 +185,19 @@ async def handle_topic_message(message: Message):
         return
 
     await topic_manager.forward_to_user(user_id, message)
-# --- Настройка команд бота ---
+
 
 async def set_bot_commands():
     commands = [
         BotCommand(command="start", description="Запустить бота / Главное меню")
     ]
     await bot.set_my_commands(commands=commands, scope=BotCommandScopeDefault())
+
+
+async def main():
+    await set_bot_commands()
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
