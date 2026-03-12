@@ -7,9 +7,8 @@ def get_main_keyboard():
     builder.button(text="🛠 Тех. поддержка")
     builder.button(text="📝 Описать проблему")
     builder.button(text="❓ FAQ")
-    builder.button(text="⚠️ Отправить жалобу")
     
-    builder.adjust(2, 2)
+    builder.adjust(2, 1)
     
     return builder.as_markup(resize_keyboard=True)
 

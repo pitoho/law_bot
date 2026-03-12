@@ -1,12 +1,13 @@
 import asyncio
 import logging
-import traceback  # <-- ЭТОТ ИМПОРТ НУЖЕН!
+import traceback 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message, BotCommand, BotCommandScopeDefault  # <-- ДОБАВЬТЕ BotCommand
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from support_module import support_router, setup_support_module
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +31,13 @@ try:
     # Инициализация менеджера тем
     from topic_manager import TopicManager
     topic_manager = TopicManager(bot)
+    setup_support_module(bot)
     
     # Подключаем роутер FAQ
     from faq_module import faq_router
     dp.include_router(faq_router)
+    dp.include_router(support_router)
+
     
     logger.info("Bot initialized successfully")
     
@@ -59,7 +63,6 @@ async def command_start_handler(message: Message) -> None:
         "• 🛠 Связаться с тех. поддержкой\n"
         "• 📝 Описать возникшую проблему\n"
         "• ❓ Найти ответы в часто задаваемых вопросах\n"
-        "• ⚠️ Отправить жалобу\n\n"
         "👇 <i>Используй кнопки в меню ниже для навигации.</i>"
     )
     
@@ -90,7 +93,7 @@ async def describe_problem_handler(message: Message, state: FSMContext):
     if topic_id:
         await message.answer(
             "📝 <b>Опишите вашу проблему</b>\n\n"
-            "Пожалуйста, подробно опишите, с чем вы столкнулись.\n"
+            "Пожалуйста, подробно опишите, с чем вы столкнулись. Наш менеджер поможет подобрать Вам специалиста и подскажет стоимость услуг.\n"
             "Вы можете отправить текст, фото, видео или документы.\n\n"
             "Когда закончите, нажмите кнопку <b>\"Завершить диалог\"</b>.",
             reply_markup=get_dialog_keyboard(),
@@ -143,24 +146,6 @@ async def handle_dialog_message(message: Message, state: FSMContext):
     await topic_manager.forward_to_topic(user_id, message)
     # Никакого ответного сообщения не отправляем
 
-@dp.message(F.text == "🛠 Тех. поддержка")
-async def tech_support_handler(message: Message):
-    await message.answer(
-        "🛠 <b>Техническая поддержка</b>\n\n"
-        "Чтобы связаться с оператором, нажмите кнопку <b>\"Описать проблему\"</b>.\n"
-        "Ожидайте ответа в ближайшее время.",
-        parse_mode="HTML"
-    )
-
-@dp.message(F.text == "⚠️ Отправить жалобу")
-async def complaint_handler(message: Message):
-    await message.answer(
-        "⚠️ <b>Отправить жалобу</b>\n\n"
-        "Опишите суть жалобы максимально подробно. "
-        "Мы рассмотрим её в ближайшее время.",
-        parse_mode="HTML"
-    )
-
 # --- Обработчики сообщений из группы ---
 @dp.message(lambda message: message.chat.id == config.GROUP_ID and message.is_topic_message)
 async def handle_topic_message(message: Message):
@@ -194,26 +179,3 @@ async def set_bot_commands():
         BotCommand(command="start", description="Запустить бота / Главное меню")
     ]
     await bot.set_my_commands(commands=commands, scope=BotCommandScopeDefault())
-
-# --- Основная функция ---
-
-# async def main():
-#     await set_bot_commands()
-    
-#     # Проверяем доступ к группе
-#     try:
-#         chat = await bot.get_chat(config.GROUP_ID)
-#         logger.info(f"Подключено к группе: {chat.title} (ID: {chat.id})")
-        
-#         # Проверяем, включены ли темы в группе
-#         if not chat.is_forum:
-#             logger.warning("ВНИМАНИЕ: В группе не включены темы! Бот не сможет создавать темы.")
-#     except Exception as e:
-#         logger.error(f"Не удалось подключиться к группе {config.GROUP_ID}: {e}")
-#         logger.error("Проверьте, добавлен ли бот в группу и есть ли у него права администратора.")
-    
-#     logger.info("Бот запущен и готов к работе!")
-#     await dp.start_polling(bot)
-
-# if __name__ == "__main__":
-#     asyncio.run(main())
